@@ -45,27 +45,41 @@ tr:last-child td { border-bottom:0; }
 .study { width:70vw; max-width:1440px; margin-left:50%; transform:translateX(-50%); }
 .study-top { display:flex; justify-content:space-between; align-items:center; margin-bottom:22px; color:var(--muted); }
 .study-card { position:relative; border:2px solid var(--ink); border-radius:16px; height:270px; overflow:hidden; }
+.study-card.knowledge-card { height:489px; }
 .card-type { position:absolute; top:42px; left:56px; color:var(--muted); font-size:16px; font-weight:800; letter-spacing:.08em; }
 .prompt { position:absolute; top:98px; left:56px; right:56px; max-height:145px; overflow-y:auto; font-size:clamp(24px, 2vw, 30px); line-height:1.6; font-weight:400; white-space:pre-wrap; }
+.knowledge-card .prompt { bottom:42px; max-height:none; }
 .reveal { position:relative; margin-top:16px; width:100%; height:203px; border:2px dashed var(--ink); border-radius:16px; padding:0; background:#fff; text-align:left; color:var(--ink); }
 .reveal.hidden { display:flex; align-items:center; justify-content:center; text-align:center; font-size:19px; font-weight:700; }
 .reveal:not(.hidden) { display:flex; align-items:center; padding:0 56px; border-style:solid; }
 .reveal.placeholder { visibility:hidden; }
 .answer { max-height:145px; overflow-y:auto; font-size:clamp(24px, 2vw, 30px); line-height:1.6; font-weight:400; white-space:pre-wrap; }
 .study-actions { display:flex; align-items:center; gap:12px; width:100%; margin-top:26px; }
-.study-actions .button:first-child { width:170px; height:54px; margin-right:auto; }
-.study-actions .button:nth-child(2) { width:170px; height:54px; }
-.study-actions .button:last-child { width:170px; height:54px; }
+.study-actions .button { width:170px; height:54px; }
+.study-actions .button:first-child { margin-right:auto; }
 .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.42); display:grid; place-items:center; padding:20px; }
 .modal { width:min(620px,100%); background:#fff; border:2px solid var(--ink); border-radius:14px; padding:24px; }
 .modal h2 { margin-bottom:20px; }
+.about-modal { max-height:min(720px, calc(100vh - 40px)); display:flex; flex-direction:column; }
+.about-list { overflow-y:auto; padding-right:8px; }
+.about-list p { margin:0 0 10px; line-height:1.55; }
 .field { display:block; margin-bottom:16px; font-weight:700; }
 .field input,.field textarea,.field select { display:block; width:100%; margin-top:7px; padding:10px 12px; border:1px solid var(--ink); border-radius:8px; resize:vertical; font-weight:400; background:#fff; }
 .field textarea { min-height:105px; }
 .import-help { margin:-7px 0 15px; color:var(--muted); font-size:14px; line-height:1.65; }
+.math-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:2px 0 12px; }
+.math-toolbar > span { color:var(--muted); font-size:14px; }
+.math-toolbar .button { padding:6px 9px; font-size:14px; }
+.math-display { font-family:"Cambria Math","STIX Two Math",serif; white-space:nowrap; }
+.math-fraction { display:inline-flex; flex-direction:column; vertical-align:middle; text-align:center; line-height:1.1; margin:0 .12em; }
+.math-fraction > span:first-child { border-bottom:1px solid currentColor; padding:0 .18em .08em; }
+.math-fraction > span:last-child { padding:.08em .18em 0; }
+.math-root { display:inline-flex; align-items:flex-start; vertical-align:middle; }
+.math-root > sup { font-size:.55em; margin-right:.04em; }
+.math-radicand { border-top:1px solid currentColor; line-height:1; padding:.05em .12em 0; }
 .intro-modal { text-align:center; padding:8px 0 5px; }
 .intro-modal p { margin:0 0 25px; }
 .modal-actions { display:flex; justify-content:flex-end; gap:9px; margin-top:22px; }
 .toast { position:fixed; bottom:26px; left:50%; transform:translateX(-50%); background:#111; color:#fff; padding:10px 16px; border-radius:8px; opacity:0; pointer-events:none; transition:opacity .2s; }
 .toast.show { opacity:1; }
-@media (max-width:600px) { .topbar { padding:0 16px; } .page { padding:28px 16px 60px; } .page-head { align-items:flex-start; flex-direction:column; } .notebook-grid { grid-template-columns:1fr; } .study { width:100%; margin-left:0; transform:none; } .card-type { top:32px; left:28px; } .prompt { top:80px; left:28px; right:28px; max-height:140px; font-size:23px; } .study-card { height:250px; } .reveal { height:188px; } .reveal:not(.hidden) { padding:0 28px; } .answer { max-height:90px; font-size:23px; } .study-actions { display:flex; flex-direction:column; } .study-actions .button,.study-actions .button:first-child,.study-actions .button:last-child { width:100%; margin-right:0; } }
+@media (max-width:600px) { .topbar { padding:0 16px; } .page { padding:28px 16px 60px; } .page-head { align-items:flex-start; flex-direction:column; } .notebook-grid { grid-template-columns:1fr; } .study { width:100%; margin-left:0; transform:none; } .card-type { top:32px; left:28px; } .prompt { top:80px; left:28px; right:28px; max-height:140px; font-size:23px; } .study-card { height:250px; } .study-card.knowledge-card { height:454px; } .knowledge-card .prompt { bottom:28px; max-height:none; } .reveal { height:188px; } .reveal:not(.hidden) { padding:0 28px; } .answer { max-height:90px; font-size:23px; } .study-actions { display:flex; flex-direction:column; } .study-actions .button,.study-actions .button:first-child,.study-actions .button:last-child { width:100%; margin-right:0; } }
