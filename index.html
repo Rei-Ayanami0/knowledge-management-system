@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#111111" />
+    <title>知识管理系统</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#home" aria-label="返回首页">知识管理系统</a>
+        <nav id="nav" class="nav"></nav>
+      </header>
+      <main id="app" class="page" tabindex="-1"></main>
+    </div>
+    <div id="modal-root"></div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="offline-dictionary.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
