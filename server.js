@@ -67,7 +67,7 @@ const clean = value => String(value ?? '').trim();
 function parseBody(req) {
   return new Promise((resolve, reject) => {
     let content = ''; let size = 0;
-    req.on('data', chunk => { size += chunk.length; if (size > 2 * 1024 * 1024) { reject(new Error('请求内容过大')); req.destroy(); } else content += chunk; });
+    req.on('data', chunk => { size += chunk.length; if (size > 50 * 1024 * 1024) { reject(new Error('单次导入内容超过 50MB，请拆分后再导入。')); req.destroy(); } else content += chunk; });
     req.on('end', () => { try { resolve(content ? JSON.parse(content) : {}); } catch { reject(new Error('请求格式无效')); } });
     req.on('error', reject);
   });
