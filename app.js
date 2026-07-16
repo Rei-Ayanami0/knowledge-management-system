@@ -1,172 +1,62 @@
-/* 本地复习本：所有数据保存在当前浏览器的 localStorage。 */
-const STORE = 'review-notebook-v1';
-const app = document.querySelector('#app');
-const nav = document.querySelector('#nav');
+const root = document.querySelector('#app');
 const modalRoot = document.querySelector('#modal-root');
 const toastEl = document.querySelector('#toast');
+let token = localStorage.getItem('kms-fullstack-token') || '';
+let currentUser = null;
 let toastTimer;
-let selectedIds = new Set();
 
-const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
-const now = () => new Date().toISOString();
-const escapeHtml = (s = '') => String(s).replace(/[&<>'"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;' }[c]));
-const nl = (s = '') => escapeHtml(s).replace(/\n/g, '<br>');
-
-function initialData() {
-  const regular = uid(); const errors = uid(); const time = now();
-  return {
-    notebooks: [
-      { id: regular, name: '我的复习本', system: false, createdAt: time, updatedAt: time },
-      { id: errors, name: '错题本', system: true, createdAt: time, updatedAt: time }
-    ],
-    errorNotebookId: errors,
-    items: [
-      { id: uid(), notebookId: regular, prompt: 'raise ... by 5%', answer: '将……提高 5%', createdAt: time, updatedAt: time },
-      { id: uid(), notebookId: regular, prompt: 'buying something', answer: '买某件东西', createdAt: time, updatedAt: time },
-      { id: uid(), notebookId: regular, prompt: 'C语言的特点', answer: 'C语言是面向过程、可移植性高、高级、编译型语言。', createdAt: time, updatedAt: time }
-    ]
-  };
+const esc = (v = '') => String(v).replace(/[&<>'"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;' }[c]));
+const nl = value => esc(value).replace(/\n/g, '<br>');
+const toast = text => { toastEl.textContent = text; toastEl.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2400); };
+const api = async (url, options = {}) => {
+  const response = await fetch(url, { ...options, headers: { 'Content-Type':'application/json', ...(token ? { Authorization:`Bearer ${token}` } : {}), ...(options.headers || {}) } });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || '请求失败。');
+  return data;
+};
+const timeText = value => new Date(value).toLocaleDateString('zh-CN');
+const typeName = type => ({ knowledge:'知识点', quick:'快速阅读', mcq:'选择题', formula:'数学公式', math:'数学题' }[type] || '知识点');
+const typeOptions = selected => ['knowledge','quick','mcq','formula','math'].map(type => `<option value="${type}" ${type === selected ? 'selected' : ''}>${typeName(type)}</option>`).join('');
+const closeModal = () => { modalRoot.innerHTML = ''; };
+function modal(title, content) { modalRoot.innerHTML = `<div class="backdrop"><section class="modal" role="dialog" aria-modal="true"><button class="icon-close" data-close aria-label="关闭">×</button><h2>${esc(title)}</h2>${content}</section></div>`; modalRoot.querySelector('[data-close]').onclick = closeModal; }
+function shell(content, active = 'home') {
+  root.innerHTML = `<header class="topbar"><button class="brand" data-nav="home">知识管理系统 <span>全栈版</span></button><nav><button data-nav="home" class="${active === 'home' ? 'active' : ''}">复习本</button><button data-nav="profile" class="profile-button">${esc(currentUser?.avatar || '📚')} ${esc(currentUser?.nickname || '')}</button><button data-nav="logout">退出</button></nav></header><main class="page">${content}</main>`;
+  root.querySelectorAll('[data-nav]').forEach(button => button.onclick = () => navigate(button.dataset.nav));
 }
-function load() { try { return JSON.parse(localStorage.getItem(STORE)) || initialData(); } catch { return initialData(); } }
-let data = load();
-function save() { localStorage.setItem(STORE, JSON.stringify(data)); }
-function findBook(id) { return data.notebooks.find(b => b.id === id); }
-function bookItems(id) { return data.items.filter(i => i.notebookId === id); }
-function toast(message) { toastEl.textContent = message; toastEl.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2200); }
-function setNav() { document.querySelector('.brand').textContent = '知识管理系统'; nav.innerHTML = `<button type="button" data-nav="notebooks">复习本</button><button type="button" data-nav="errors">错题本</button>`; }
-function go(hash) { location.hash = hash; }
-
-function home() {
-  app.onmouseup = null; app.ontouchend = null;
-  const cards = data.notebooks.map(book => {
-    const count = bookItems(book.id).length;
-    return `<article class="notebook-card ${book.system ? 'error' : ''}" data-book-card="${book.id}">
-      <div><h2>${escapeHtml(book.name)}</h2><p class="subtle">${count} 条知识点${book.system ? ' · 重点复习内容' : ''}</p></div>
-      <div class="card-actions"><button class="button dark" data-action="study" data-id="${book.id}">开始复习</button><button class="button" data-action="manage" data-id="${book.id}">管理</button></div>
-    </article>`;
-  }).join('');
-  app.innerHTML = `<section class="home-page"><div class="notebook-grid">${cards}</div></section>`;
-  enableNotebookReorder();
+async function navigate(target) {
+  if (target === 'logout') { await api('/api/auth/logout', { method:'POST' }).catch(() => {}); token = ''; currentUser = null; localStorage.removeItem('kms-fullstack-token'); return authView(); }
+  if (target === 'profile') return profileModal();
+  return dashboard();
 }
-function saveNotebookOrder(grid) {
-  const positions = new Map([...grid.querySelectorAll('[data-book-card]')].map((card, index) => [card.dataset.bookCard, index]));
-  data.notebooks.sort((a, b) => positions.get(a.id) - positions.get(b.id));
-  save();
+function authView() {
+  root.innerHTML = `<main class="auth-page"><section class="auth-card"><div class="auth-logo">📚</div><h1>知识管理系统</h1><p>本地全栈版 · 数据保存在本机 SQLite 数据库</p><div class="auth-tabs"><button class="active" data-mode="login">登录</button><button data-mode="register">注册</button></div><form id="auth-form"></form></section></main>`;
+  const form = root.querySelector('#auth-form');
+  const draw = mode => { root.querySelectorAll('[data-mode]').forEach(button => button.classList.toggle('active', button.dataset.mode === mode)); form.innerHTML = mode === 'login' ? `<label>账号<input name="username" required minlength="2" maxlength="30" autocomplete="username" /></label><label>密码<input name="password" type="password" required minlength="6" autocomplete="current-password" /></label><button class="primary wide">登录</button><p class="hint">首次使用请先注册账号。</p>` : `<label>账号<input name="username" required minlength="2" maxlength="30" autocomplete="username" /></label><label>昵称<input name="nickname" required maxlength="30" /></label><label>密码<input name="password" type="password" required minlength="6" autocomplete="new-password" /></label><button class="primary wide">创建本地账号</button><p class="hint">密码仅以哈希形式保存在本机。</p>`; form.onsubmit = async event => { event.preventDefault(); const value = Object.fromEntries(new FormData(form)); try { const result = await api(`/api/auth/${mode}`, { method:'POST', body:JSON.stringify(value) }); token = result.token; currentUser = result.user; localStorage.setItem('kms-fullstack-token', token); dashboard(); } catch (err) { toast(err.message); } }; };
+  root.querySelectorAll('[data-mode]').forEach(button => button.onclick = () => draw(button.dataset.mode)); draw('login');
 }
-function moveCardBeforePointer(grid, card, clientX, clientY) {
-  const target = document.elementFromPoint(clientX, clientY)?.closest('[data-book-card]');
-  if (!target || target === card || !grid.contains(target)) return;
-  const box = target.getBoundingClientRect();
-  const before = clientY < box.top + box.height / 2 || (clientY <= box.bottom && clientX < box.left + box.width / 2);
-  grid.insertBefore(card, before ? target : target.nextSibling);
+async function dashboard() {
+  try {
+    const data = await api('/api/dashboard');
+    shell(`<section class="hero"><div><p class="eyebrow">本地学习空间</p><h1>你好，${esc(currentUser.nickname)}</h1><p>词汇、知识点、选择题和数学题都在一个复习系统中。</p></div><div class="hero-stats"><strong>${data.stats.total}</strong><span>总内容</span><strong>${data.stats.mcq}</strong><span>选择题</span><strong>${data.stats.math}</strong><span>数学内容</span></div></section><section class="section-head"><div><h2>我的复习本</h2><p>${data.books.length} 个复习本</p></div><button class="primary" id="new-book">＋ 新建复习本</button></section><section class="book-grid">${data.books.map(book => `<article class="book-card"><div><h3>${esc(book.name)}</h3><p>${esc(book.description || '未添加说明')}</p><span>${book.item_count} 条内容 · 创建于 ${timeText(book.created_at)}</span></div><div class="card-actions"><button class="primary" data-study="${book.id}">开始复习</button><button data-manage="${book.id}">管理</button></div></article>`).join('') || '<p class="empty">还没有复习本，请新建一个。</p>'}</section>`, 'home');
+    root.querySelector('#new-book').onclick = newBookModal;
+    root.querySelectorAll('[data-manage]').forEach(button => button.onclick = () => manageBook(button.dataset.manage));
+    root.querySelectorAll('[data-study]').forEach(button => button.onclick = () => chooseRound(button.dataset.study));
+  } catch (err) { if (/登录/.test(err.message)) { token = ''; localStorage.removeItem('kms-fullstack-token'); authView(); } else toast(err.message); }
 }
-function enableNotebookReorder() {
-  const grid = app.querySelector('.notebook-grid'); if (!grid) return;
-  let pressedCard = null; let dragTimer = null; let dragging = false; let startX = 0; let startY = 0; let activePointerId = null;
-  const cancelPress = () => { clearTimeout(dragTimer); dragTimer = null; if (pressedCard) pressedCard.classList.remove('dragging'); pressedCard = null; dragging = false; activePointerId = null; };
-  grid.addEventListener('pointerdown', event => {
-    if (event.button !== 0 || event.target.closest('button')) return;
-    const card = event.target.closest('[data-book-card]'); if (!card) return;
-    pressedCard = card; startX = event.clientX; startY = event.clientY; activePointerId = event.pointerId;
-    dragTimer = setTimeout(() => {
-      if (!pressedCard) return;
-      dragging = true; pressedCard.classList.add('dragging');
-      try { grid.setPointerCapture(activePointerId); } catch {}
-      navigator.vibrate?.(20); toast('已进入排序模式，拖动卡片即可换位。');
-    }, 400);
-  });
-  grid.addEventListener('pointermove', event => {
-    if (!pressedCard || event.pointerId !== activePointerId) return;
-    if (!dragging && Math.hypot(event.clientX - startX, event.clientY - startY) > 10) { cancelPress(); return; }
-    if (dragging) { event.preventDefault(); moveCardBeforePointer(grid, pressedCard, event.clientX, event.clientY); }
-  });
-  const finishReorder = event => {
-    if (!pressedCard || event.pointerId !== activePointerId) return;
-    if (dragging) { saveNotebookOrder(grid); event.preventDefault(); }
-    cancelPress();
-  };
-  grid.addEventListener('pointerup', finishReorder); grid.addEventListener('pointercancel', cancelPress); grid.addEventListener('lostpointercapture', cancelPress);
+function newBookModal() { modal('新建复习本', `<form id="book-form"><label>复习本名称<input name="name" maxlength="40" required autofocus placeholder="例如：高等数学" /></label><label>说明<textarea name="description" maxlength="100" placeholder="例如：极限、导数、积分"></textarea></label><div class="modal-actions"><button class="primary">创建</button><button type="button" data-close>取消</button></div></form>`); modalRoot.querySelector('[data-close]').onclick = closeModal; modalRoot.querySelector('#book-form').onsubmit = async event => { event.preventDefault(); try { await api('/api/notebooks', { method:'POST', body:JSON.stringify(Object.fromEntries(new FormData(event.target))) }); closeModal(); dashboard(); } catch (err) { toast(err.message); } }; }
+function profileModal() { modal('个人资料', `<form id="profile-form"><div class="avatar-picker"><button type="button" data-avatar="📚">📚</button><button type="button" data-avatar="🧠">🧠</button><button type="button" data-avatar="✏️">✏️</button><button type="button" data-avatar="🧮">🧮</button><button type="button" data-avatar="🌟">🌟</button></div><label>昵称<input name="nickname" required maxlength="30" value="${esc(currentUser.nickname)}" /></label><label>头像（可输入 emoji 或图片网址）<input name="avatar" maxlength="300" value="${esc(currentUser.avatar)}" /></label><div class="modal-actions"><button class="primary">保存资料</button><button type="button" data-close>取消</button></div></form>`); const form = modalRoot.querySelector('#profile-form'); modalRoot.querySelector('[data-close]').onclick = closeModal; modalRoot.querySelectorAll('[data-avatar]').forEach(button => button.onclick = () => { form.avatar.value = button.dataset.avatar; }); form.onsubmit = async event => { event.preventDefault(); try { currentUser = (await api('/api/profile', { method:'PUT', body:JSON.stringify(Object.fromEntries(new FormData(form))) })).user; closeModal(); dashboard(); } catch (err) { toast(err.message); } }; }
+async function manageBook(bookId) {
+  try {
+    const data = await api(`/api/notebooks/${bookId}/items?sort=desc`); const book = data.book;
+    shell(`<section class="manage-head"><div><button class="back" data-nav="home">← 返回</button><h1>${esc(book.name)}</h1><p>${esc(book.description || '管理内容、练习与导入')}</p></div><div class="manage-buttons"><button class="primary" id="study-book">开始复习</button><button id="add-item">添加内容</button><button id="bulk-import">批量导入</button><button class="danger" id="delete-book">删除复习本</button></div></section><section class="filterbar"><input id="search" placeholder="搜索题干、答案或标签" /><button id="search-btn">搜索</button><button id="sort-btn">最新在前</button></section><section class="item-list">${data.items.map((item,index) => itemCard(item, index + 1)).join('') || '<p class="empty">这里还没有内容。可添加单条内容或批量导入。</p>'}</section>`, 'home');
+    root.querySelector('#study-book').onclick = () => chooseRound(bookId); root.querySelector('#add-item').onclick = () => itemModal(bookId); root.querySelector('#bulk-import').onclick = () => bulkModal(bookId); root.querySelector('#delete-book').onclick = async () => { if (confirm(`确定删除“${book.name}”及全部内容吗？`)) { await api(`/api/notebooks/${bookId}`, { method:'DELETE' }); dashboard(); } };
+    root.querySelector('#search-btn').onclick = () => loadFiltered(bookId, root.querySelector('#search').value, 'desc'); root.querySelector('#sort-btn').onclick = () => loadFiltered(bookId, root.querySelector('#search').value, 'asc'); root.querySelectorAll('[data-edit]').forEach(button => button.onclick = () => itemModal(bookId, data.items.find(item => item.id === Number(button.dataset.edit)))); root.querySelectorAll('[data-delete]').forEach(button => button.onclick = async () => { if (confirm('确定删除这条内容吗？')) { await api(`/api/items/${button.dataset.delete}`, { method:'DELETE' }); manageBook(bookId); } });
+  } catch (err) { toast(err.message); }
 }
-function management(bookId) {
-  const book = findBook(bookId); if (!book) return home();
-  const params = new URLSearchParams(location.hash.split('?')[1] || '');
-  const filter = params.get('q') || '';
-  const sortOrder = params.get('order') === 'desc' ? 'desc' : 'asc';
-  const matchedItems = bookItems(bookId).filter(i => `${i.prompt}\n${i.answer}`.toLowerCase().includes(filter.toLowerCase()));
-  const items = sortOrder === 'asc' ? matchedItems : [...matchedItems].reverse();
-  const rows = items.length ? items.map((item, index) => { const serial = sortOrder === 'asc' ? index + 1 : items.length - index; return `<tr><td class="select-cell"><input type="checkbox" data-select-item="${item.id}" ${selectedIds.has(item.id) ? 'checked' : ''} aria-label="选择第 ${serial} 条" /></td><td class="number">${serial}</td><td>${nl(item.prompt)}</td><td class="answer-cell">${nl(item.answer)}</td><td><div class="action-row"><button class="button" data-action="edit-item" data-id="${item.id}">编辑</button><button class="button danger" data-action="delete-item" data-id="${item.id}">删除</button></div></td></tr>`; }).join('') : `<tr><td colspan="5" class="subtle">${filter ? '没有匹配的知识点。' : '还没有知识点，点击“添加知识点”开始录入。'}</td></tr>`;
-  const allChecked = items.length && items.every(item => selectedIds.has(item.id));
-  app.innerHTML = `<section><div class="page-head"><div><button class="button" data-action="home">← 返回</button><h1 style="margin-top:18px">${escapeHtml(book.name)}</h1><p class="subtle">${bookItems(bookId).length} 条知识点</p></div><div class="action-row"><button class="button dark" data-action="study" data-id="${bookId}">开始复习</button><button class="button" data-action="new-item" data-book="${bookId}">添加知识点</button><button class="button" data-action="bulk-import" data-book="${bookId}">批量导入词汇</button><button class="button" data-action="bulk-import-knowledge" data-book="${bookId}">批量导入知识点</button><button class="button" data-action="bulk-export" data-book="${bookId}">批量导出</button><button class="button danger" data-action="batch-delete" data-book="${bookId}">批量删除</button>${book.system ? '' : '<button class="button danger" data-action="delete-book" data-id="'+bookId+'">删除复习本</button>'}</div></div><div class="toolbar"><input class="search" id="search" value="${escapeHtml(filter)}" placeholder="搜索知识点或答案" /><button class="button" data-action="search" data-id="${bookId}" data-order="${sortOrder}">搜索</button><div class="order-actions"><button class="button ${sortOrder === 'asc' ? 'dark' : ''}" data-action="set-order" data-id="${bookId}" data-order="asc">正序查看</button><button class="button ${sortOrder === 'desc' ? 'dark' : ''}" data-action="set-order" data-id="${bookId}" data-order="desc">倒序查看</button></div></div><div class="table-wrap"><table><thead><tr><th class="select-cell"><input type="checkbox" data-select-all ${allChecked ? 'checked' : ''} aria-label="全选" /></th><th class="number">序号</th><th>题干 / 知识点</th><th>答案</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
-  app.onchange = event => { const input = event.target; if (input.matches('[data-select-item]')) { input.checked ? selectedIds.add(input.dataset.selectItem) : selectedIds.delete(input.dataset.selectItem); } if (input.matches('[data-select-all]')) { items.forEach(item => input.checked ? selectedIds.add(item.id) : selectedIds.delete(item.id)); management(bookId); } };
-}
-function reviewSettings(bookId) {
-  const book = findBook(bookId); const total = bookItems(bookId).length;
-  if (!book) return home();
-  if (!total) return study(bookId);
-  data.reviewCounts ||= {};
-  const savedCount = Math.min(Math.max(Number(data.reviewCounts[bookId]) || Math.min(20, total), 1), total);
-  modal('设置每轮复习数量', `<p class="subtle">${escapeHtml(book.name)}共有 ${total} 条知识点。每轮会随机抽取指定数量复习。</p><label class="field">本轮复习数量<input name="count" type="number" min="1" max="${total}" value="${savedCount}" required autofocus /></label><p class="import-help">此数量会记住，下一次开始复习时可继续使用或修改。</p>`, fd => {
-    const count = Math.min(Math.max(Number(fd.get('count')) || 1, 1), total);
-    data.reviewCounts[bookId] = count; save(); modalRoot.innerHTML = ''; study(bookId, count);
-  });
-  modalRoot.querySelector('button[type="submit"]').textContent = '开始复习';
-}
-function study(bookId, roundSize) {
-  const book = findBook(bookId); const items = bookItems(bookId);
-  if (!book) return home();
-  if (!items.length) { app.innerHTML = `<section class="empty"><h2>${escapeHtml(book.name)}还没有内容</h2><p class="subtle">请先添加知识点，再开始复习。</p><button class="button dark" data-action="manage" data-id="${bookId}">去添加知识点</button></section>`; return; }
-  const count = Math.min(Math.max(Number(roundSize) || items.length, 1), items.length);
-  let order = [...items].sort(() => Math.random() - .5).slice(0, count).map(i => i.id); let position = 0; let revealed = false;
-  const renderCard = () => { const item = data.items.find(i => i.id === order[position]); if (!item) return study(bookId); const hasAnswer = Boolean(item.answer.trim()); const cardType = hasAnswer ? '快速阅读' : '知识点'; const nextLabel = hasAnswer && !revealed ? '查看答案 →' : '下一条 →'; app.innerHTML = `<section class="study"><div class="study-top"><button class="button" data-action="home">← 返回</button><span>${escapeHtml(book.name)} · ${position + 1} / ${order.length}</span></div><div class="study-card"><span class="card-type">${cardType}</span><div class="prompt">${nl(item.prompt)}</div></div>${hasAnswer ? `<div class="reveal ${revealed ? '' : 'hidden'}">${revealed ? `<span class="answer">${nl(item.answer)}</span>` : '点击下方“查看答案”'}</div>` : '<div class="reveal placeholder" aria-hidden="true"></div>'}<div class="study-actions"><button class="button" data-action="previous" ${position === 0 ? 'disabled' : ''}>← 上一条</button><button class="button" data-action="mark" data-id="${item.id}">重点复习</button><button class="button dark" data-action="next">${nextLabel}</button></div></section>`; };
-  const handleSelectedWord = () => { setTimeout(() => { const selection = window.getSelection(); const selectedText = selection?.toString().trim().replace(/\s+/g, ' '); const node = selection?.anchorNode?.nodeType === Node.ELEMENT_NODE ? selection.anchorNode : selection?.anchorNode?.parentElement; if (!selectedText || !node?.closest('.study-card, .reveal') || !isLikelyEnglish(selectedText) || modalRoot.innerHTML) return; selection.removeAllRanges(); selectedWordModal(selectedText); }, 0); };
-  app.onmouseup = handleSelectedWord; app.ontouchend = handleSelectedWord;
-  app.onclick = event => { const button = event.target.closest('button'); if (!button) return; const action = button.dataset.action; if (action === 'previous') { if (position > 0) { position -= 1; revealed = false; renderCard(); } return; } if (action === 'next') { const current = data.items.find(i => i.id === order[position]); if (current?.answer?.trim() && !revealed) { revealed = true; renderCard(); return; } position += 1; if (position >= order.length) { order = [...bookItems(bookId)].sort(() => Math.random() - .5).slice(0, count).map(i => i.id); position = 0; toast(`本轮复习完成，已开始下一轮（${count} 条）。`); } revealed = false; renderCard(); return; } if (action === 'mark') { markImportant(button.dataset.id); return; } if (action === 'home') { app.onclick = handleClick; app.onmouseup = null; app.ontouchend = null; home(); if (location.hash !== '#home') location.hash = '#home'; } };
-  renderCard();
-}
-function markImportant(itemId) { const item = data.items.find(i => i.id === itemId); const errorId = data.errorNotebookId; if (!item || !errorId) return; const exists = data.items.some(i => i.notebookId === errorId && i.sourceId === itemId); if (!exists) { data.items.push({ ...item, id: uid(), notebookId: errorId, sourceId: itemId, createdAt: now(), updatedAt: now() }); save(); toast('已加入错题本。'); } else toast('该内容已在错题本中。'); }
-function selectedWordModal(word) {
-  const answer = lookupOfflineTranslation(word);
-  if (!answer) { alert(`“${word}”未在本地离线词典中找到中文释义，未加入生词本。`); return; }
-  const books = data.notebooks.filter(book => !book.system);
-  if (!books.length) { toast('请先新建一个复习本。'); return; }
-  const defaultBookId = findBook(data.vocabNotebookId) && !findBook(data.vocabNotebookId).system ? data.vocabNotebookId : books[0].id;
-  const options = books.map(book => `<option value="${book.id}" ${book.id === defaultBookId ? 'selected' : ''}>${escapeHtml(book.name)}</option>`).join('');
-  modal('加入生词本', `<p>将 <strong>${escapeHtml(word)}</strong> 加入生词本。</p><p class="subtle">中文释义：${escapeHtml(answer)}</p><label class="field">选择复习本<select name="notebookId">${options}</select></label><p class="import-help">本次选择会作为以后选词时的默认生词本。</p>`, fd => {
-    const notebookId = String(fd.get('notebookId') || ''); const targetBook = findBook(notebookId);
-    if (!targetBook || targetBook.system) return;
-    data.vocabNotebookId = notebookId;
-    if (bookItems(notebookId).some(item => normalizedPrompt(item.prompt) === normalizedPrompt(word))) { save(); modalRoot.innerHTML = ''; toast(`“${word}”已在${targetBook.name}中。`); return; }
-    const time = now(); data.items.push({ id:uid(), notebookId, prompt:word, answer, createdAt:time, updatedAt:time }); save(); modalRoot.innerHTML = ''; toast(`已加入${targetBook.name}。`);
-  });
-  modalRoot.querySelector('button[type="submit"]').textContent = '加入';
-}
-function modal(title, inner, onSubmit) { modalRoot.innerHTML = `<div class="modal-backdrop"><form class="modal"><h2>${title}</h2>${inner}<div class="modal-actions"><button class="button dark" type="submit">保存</button><button class="button" type="button" data-close>取消</button></div></form></div>`; const form = modalRoot.querySelector('form'); form.querySelector('[data-close]').onclick = () => modalRoot.innerHTML = ''; form.onsubmit = e => { e.preventDefault(); onSubmit(new FormData(form)); }; }
-function enlargeImportModal() { requestAnimationFrame(() => { const modalEl = modalRoot.querySelector('.modal'); const textarea = modalRoot.querySelector('textarea[name="bulk"]'); if (!modalEl || !textarea) return; textarea.style.minHeight = `${Math.ceil(textarea.getBoundingClientRect().height * 1.2)}px`; modalEl.style.minHeight = `${Math.ceil(modalEl.getBoundingClientRect().height * 1.2)}px`; }); }
-function newBook() { modal('新建复习本', `<label class="field">复习本名称<input name="name" maxlength="30" required autofocus placeholder="例如：英语固定搭配" /></label>`, fd => { const name = fd.get('name').trim(); if (!name) return; data.notebooks.push({ id:uid(), name, system:false, createdAt:now(), updatedAt:now() }); save(); modalRoot.innerHTML=''; home(); }); }
-function notebookMenu() { modalRoot.innerHTML = `<div class="modal-backdrop"><div class="modal"><h2>我的复习本</h2><div class="intro-modal"><p class="subtle">录入知识点，随机复习，点击查看答案。</p><button class="button dark" type="button" data-create-book>新建复习本</button></div><div class="modal-actions"><button class="button" type="button" data-close>关闭</button></div></div></div>`; modalRoot.querySelector('[data-close]').onclick = () => modalRoot.innerHTML = ''; modalRoot.querySelector('[data-create-book]').onclick = () => { modalRoot.innerHTML = ''; newBook(); }; }
-function itemModal(bookId, item) { modal(item ? '编辑知识点' : '添加知识点', `<label class="field">题干 / 知识点<textarea name="prompt" required placeholder="例如：raise ... by 5%">${escapeHtml(item?.prompt || '')}</textarea></label><label class="field">答案（英文词汇留空时自动补充中文）<textarea name="answer" placeholder="例如：将……提高 5%">${escapeHtml(item?.answer || '')}</textarea></label>`, fd => { const prompt=fd.get('prompt').trim(); let answer=fd.get('answer').trim(); if (!prompt) return; if (!answer && isLikelyEnglish(prompt)) { answer = lookupOfflineTranslation(prompt); if (!answer) { alert(`“${prompt}”未在本地离线词典中找到中文释义，未保存。`); return; } } if (item) Object.assign(item,{prompt,answer,updatedAt:now()}); else data.items.push({id:uid(), notebookId:bookId,prompt,answer,createdAt:now(),updatedAt:now()}); save(); modalRoot.innerHTML=''; management(bookId); }); }
-function parseImport(text) {
-  return text.split(/\r?\n/).map(line => line.trim()).filter(Boolean).map(line => {
-    line = line.replace(/^\s*\d+\s*[.、)）]\s*/, '');
-    const parts = line.split(/\t+/).map(s => s.trim()).filter(Boolean);
-    if (parts.length >= 2) return { prompt:parts[0], answer:parts.slice(1).join(' ') };
-    const match = line.match(/^(.+?)\s{2,}(.+)$/);
-    return match ? { prompt:match[1].trim(), answer:match[2].trim() } : { prompt:line, answer:'' };
-  }).filter(Boolean).filter(item => item.prompt);
-}
-function bulkImport(bookId) { modal('批量导入词汇', `<p class="import-help">每行一条。可带编号；英文和中文之间用制表符或两个以上空格分开。仅有英文词汇时，将从本地离线词典自动补充中文。<br>例：<code>13. drink cans    饮料罐</code></p><label class="field">粘贴内容<textarea name="bulk" required autofocus placeholder="13. drink cans    饮料罐\n14. cover\n15. package        包装/打包"></textarea></label>`, fd => { const items = parseImport(fd.get('bulk')); if (!items.length) { toast('没有识别到内容，请检查每行是否含词汇。'); return; } const result = addUniqueImportedItems(bookId, items, '词汇', true); modalRoot.innerHTML=''; if (result.added) toast(`已导入 ${result.added} 条词汇。`); management(bookId); }); enlargeImportModal(); }
-function parseKnowledgeImport(text) {
-  return text.split(/\r?\n/).map(line => line.trim()).filter(Boolean).map(line => ({
-    prompt: line.replace(/^\s*\d+\s*[.、)）]\s*/, ''),
-    answer: ''
-  })).filter(item => item.prompt);
-}
-function normalizedPrompt(value) { return String(value || '').normalize('NFC').trim().replace(/\s+/g, ' ').toLowerCase(); }
-function isLikelyEnglish(value) { return /[a-z]/i.test(value) && !/[\u4e00-\u9fff]/.test(value); }
-function lookupOfflineTranslation(prompt) { return window.OFFLINE_DICTIONARY?.[normalizedPrompt(prompt)] || ''; }
-function addUniqueImportedItems(bookId, items, label, autoTranslate = false) { const existing = new Set(bookItems(bookId).map(item => normalizedPrompt(item.prompt))); const duplicates = []; const missing = []; const added = []; items.forEach(item => { const key = normalizedPrompt(item.prompt); if (!key || existing.has(key)) { duplicates.push(item.prompt); return; } let entry = item; if (autoTranslate && !entry.answer && isLikelyEnglish(entry.prompt)) { const translation = lookupOfflineTranslation(entry.prompt); if (!translation) { missing.push(entry.prompt); return; } entry = { ...entry, answer:translation }; } existing.add(key); added.push(entry); }); if (added.length) { const time = now(); data.items.push(...added.map(item => ({ id:uid(), notebookId:bookId, ...item, createdAt:time, updatedAt:time }))); save(); } if (duplicates.length) { const shown = duplicates.slice(0, 20).map(prompt => `“${prompt}”重复导入，未导入。`).join('\n'); const more = duplicates.length > 20 ? `\n另有 ${duplicates.length - 20} 条重复内容。` : ''; alert(`${label}重复导入：\n${shown}${more}`); } if (missing.length) { const shown = missing.slice(0, 20).map(prompt => `“${prompt}”未在本地离线词典中找到中文释义，未导入。`).join('\n'); const more = missing.length > 20 ? `\n另有 ${missing.length - 20} 条未收录内容。` : ''; alert(`本地词典未收录：\n${shown}${more}`); } return { added:added.length, duplicates:duplicates.length, missing:missing.length }; }
-function bulkKnowledgeImport(bookId) { modal('批量导入知识点', `<p class="import-help">每行一条，全部按“纯知识点”保存，不会创建答案。<br>不会按空格、<code>|||</code> 或制表符拆分；完整句子、符号和多个空格都会原样保留。<br>例：<code>while(循环条件) ||| 条件为真进入循环体，条件为假退出循环体</code> 会作为一整条知识点保存。</p><label class="field">粘贴内容<textarea name="bulk" required autofocus placeholder="1. C语言是面向过程、可移植性高、高级、编译型语言\n2. while(循环条件) ||| 条件为真进入循环体，条件为假退出循环体"></textarea></label>`, fd => { const items = parseKnowledgeImport(fd.get('bulk')); if (!items.length) { toast('没有识别到内容，请确认每行均有知识点。'); return; } const result = addUniqueImportedItems(bookId, items, '知识点'); modalRoot.innerHTML=''; if (result.added) toast(`已导入 ${result.added} 条知识点。`); management(bookId); }); enlargeImportModal(); }
-function exportNotebook(bookId) { const book = findBook(bookId); const items = bookItems(bookId); if (!book || !items.length) { toast('当前复习本没有可导出的内容。'); return; } const content = items.map(item => item.answer ? `${item.prompt}     ${item.answer}` : item.prompt).join('\r\n'); const safeName = book.name.replace(/[\\/:*?"<>|]/g, '_'); const date = new Date().toISOString().slice(0, 10); const file = new Blob([`\ufeff${content}`], { type:'text/plain;charset=utf-8' }); const link = document.createElement('a'); const url = URL.createObjectURL(file); link.href = url; link.download = `${safeName}_${date}.txt`; document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000); toast(`已导出 ${items.length} 条知识点。`); }
-function handleClick(event) { const button = event.target.closest('button'); if (!button) return; const { action, id, book, order } = button.dataset; if (action === 'home') { home(); if (location.hash !== '#home') location.hash = '#home'; return; } if (action === 'new-book') newBook(); if (action === 'manage') go(`#manage/${id}`); if (action === 'study') reviewSettings(id); if (action === 'new-item') itemModal(book); if (action === 'bulk-import') bulkImport(book); if (action === 'bulk-import-knowledge') bulkKnowledgeImport(book); if (action === 'bulk-export') exportNotebook(book); if (action === 'batch-delete') { const selected = bookItems(book).filter(item => selectedIds.has(item.id)); if (!selected.length) { toast('请先勾选要删除的知识点。'); return; } if (confirm(`确定删除已选择的 ${selected.length} 条知识点吗？`)) { const ids = new Set(selected.map(item => item.id)); data.items = data.items.filter(item => !ids.has(item.id)); ids.forEach(id => selectedIds.delete(id)); save(); management(book); } } if (action === 'edit-item') { const item=data.items.find(i=>i.id===id); itemModal(item.notebookId,item); } if (action === 'delete-item') { const item=data.items.find(i=>i.id===id); if (item && confirm('确定删除这条知识点吗？')) { data.items=data.items.filter(i=>i.id!==id); selectedIds.delete(item.id); save(); management(item.notebookId); } } if (action === 'delete-book') { const target=findBook(id); if (target && confirm(`确定删除“${target.name}”及其中全部知识点吗？`)) { data.notebooks=data.notebooks.filter(b=>b.id!==id); data.items=data.items.filter(i=>i.notebookId!==id); save(); home(); if (location.hash !== '#home') location.hash = '#home'; } } if (action === 'search') { const q=document.querySelector('#search').value.trim(); go(`#manage/${id}?q=${encodeURIComponent(q)}&order=${order || 'asc'}`); } if (action === 'set-order') { const q=document.querySelector('#search').value.trim(); go(`#manage/${id}?q=${encodeURIComponent(q)}&order=${order === 'desc' ? 'desc' : 'asc'}`); } }
-function route() { app.onclick = handleClick; const path=location.hash.slice(1) || 'home'; if (path === 'home') home(); else if (path === 'errors') go(`#manage/${data.errorNotebookId}`); else if (path.startsWith('manage/')) management(path.split(/[/?]/)[1]); else home(); }
-setNav(); nav.addEventListener('click', event => { const action = event.target.closest('button')?.dataset.nav; if (action === 'notebooks') notebookMenu(); if (action === 'errors') go('#errors'); }); window.addEventListener('hashchange', route); route();
+async function loadFiltered(bookId, query, sort) { const data = await api(`/api/notebooks/${bookId}/items?sort=${sort}&q=${encodeURIComponent(query)}`); const list = root.querySelector('.item-list'); list.innerHTML = data.items.map((item,index) => itemCard(item, index + 1)).join('') || '<p class="empty">没有匹配的内容。</p>'; root.querySelectorAll('[data-edit]').forEach(button => button.onclick = () => itemModal(bookId, data.items.find(item => item.id === Number(button.dataset.edit)))); root.querySelectorAll('[data-delete]').forEach(button => button.onclick = async () => { if (confirm('确定删除这条内容吗？')) { await api(`/api/items/${button.dataset.delete}`, { method:'DELETE' }); manageBook(bookId); } }); }
+function itemCard(item, number) { const body = item.type === 'mcq' ? `<ol class="options">${item.options.map(option => `<li>${esc(option)}</li>`).join('')}</ol>` : ''; const formula = item.formula ? `<pre class="formula">${esc(item.formula)}</pre>` : ''; return `<article class="item-card"><div class="item-number">${number}</div><div class="item-main"><div class="badges"><span>${typeName(item.type)}</span><span>难度 ${'●'.repeat(item.difficulty)}</span>${item.tags ? `<span>${esc(item.tags)}</span>` : ''}</div><h3>${nl(item.prompt)}</h3>${formula}${body}${item.answer ? `<p class="item-answer">答案：${nl(item.answer)}</p>` : ''}</div><div class="item-actions"><button data-edit="${item.id}">编辑</button><button class="danger" data-delete="${item.id}">删除</button></div></article>`; }
+function itemModal(bookId, item = null) { const value = item || { type:'knowledge', prompt:'', answer:'', formula:'', options:[], tags:'', difficulty:2 }; modal(item ? '编辑内容' : '添加内容', `<form id="item-form"><label>类型<select name="type">${typeOptions(value.type)}</select></label><label>题干 / 知识点<textarea name="prompt" required placeholder="输入词汇、知识点、题目或题干">${esc(value.prompt)}</textarea></label><label>答案 / 解析<textarea name="answer" placeholder="词汇中文、知识点解释、选择题正确选项或解析">${esc(value.answer)}</textarea></label><label>选择题选项（每行一个，可选）<textarea name="options" placeholder="A. 选项一\nB. 选项二">${esc((value.options || []).join('\n'))}</textarea></label><label>LaTex 数学公式（可选）<textarea name="formula" placeholder="例如：\\lim_{x \\to 0} \\frac{\\sin x}{x} = 1">${esc(value.formula)}</textarea></label><div class="two-fields"><label>标签<input name="tags" value="${esc(value.tags)}" placeholder="如：极限、英语" /></label><label>难度<select name="difficulty">${[1,2,3,4,5].map(n => `<option ${n === Number(value.difficulty) ? 'selected' : ''} value="${n}">${n}</option>`).join('')}</select></label></div><p class="hint">英文快速阅读未填答案时，会从本地词典自动查找中文。</p><div class="modal-actions"><button class="primary">保存</button><button type="button" data-close>取消</button></div></form>`); const form = modalRoot.querySelector('#item-form'); modalRoot.querySelector('[data-close]').onclick = closeModal; form.onsubmit = async event => { event.preventDefault(); const body = Object.fromEntries(new FormData(form)); body.options = body.options.split(/\r?\n/).map(v => v.trim()).filter(Boolean); if (body.type === 'quick' && !body.answer.trim() && window.OFFLINE_DICTIONARY) body.answer = window.OFFLINE_DICTIONARY[body.prompt.trim().toLowerCase()] || ''; if (body.type === 'quick' && !body.answer.trim()) return toast('本地词典未收录该词汇或短语，请手动填写答案。'); try { await api(item ? `/api/items/${item.id}` : `/api/notebooks/${bookId}/items`, { method:item ? 'PUT' : 'POST', body:JSON.stringify(body) }); closeModal(); manageBook(bookId); } catch (err) { toast(err.message); } }; }
+function bulkModal(bookId) { modal('批量导入题库', `<div class="import-tabs"><button data-mode="knowledge" class="active">知识点</button><button data-mode="quick">词汇/阅读</button><button data-mode="mcq">选择题</button><button data-mode="formula">公式</button><button data-mode="math">数学题</button></div><p id="bulk-help" class="hint"></p><form id="bulk-form"><textarea name="bulk" required autofocus></textarea><div class="modal-actions"><button class="primary">导入</button><button type="button" data-close>取消</button></div></form>`); const help = modalRoot.querySelector('#bulk-help'); const form = modalRoot.querySelector('#bulk-form'); let mode = 'knowledge'; const examples = { knowledge:'每行一条，整行作为纯知识点保存。', quick:'每行一条：英文 ||| 中文。只写英文时会由本地词典补中文。', mcq:'每行一题：题干 ||| 选项A;选项B;选项C;选项D ||| 正确答案/解析。', formula:'每行一条：名称 ||| LaTex公式 ||| 说明。', math:'每行一题：数学题 ||| 答案或解析 ||| 可选公式。' }; const draw = () => { help.textContent = examples[mode]; form.bulk.placeholder = mode === 'mcq' ? '函数 y=x² 的顶点是？ ||| A.(0,0);B.(1,1);C.(-1,1);D.(0,1) ||| A' : mode === 'formula' ? '极限公式 ||| \\lim_{x \\to 0} \\frac{\\sin x}{x}=1 ||| 常用极限' : '内容一\n内容二'; modalRoot.querySelectorAll('[data-mode]').forEach(button => button.classList.toggle('active', button.dataset.mode === mode)); }; modalRoot.querySelectorAll('[data-mode]').forEach(button => button.onclick = () => { mode = button.dataset.mode; draw(); }); modalRoot.querySelector('[data-close]').onclick = closeModal; draw(); form.onsubmit = async event => { event.preventDefault(); const lines = form.bulk.value.split(/\r?\n/).map(line => line.trim()).filter(Boolean); const entries = lines.map(line => { const parts = line.split(/\s*\|\|\|\s*/); if (mode === 'knowledge') return { type:mode, prompt:line }; if (mode === 'quick') return { type:mode, prompt:parts[0], answer:parts.slice(1).join('|||') || (window.OFFLINE_DICTIONARY?.[parts[0].trim().toLowerCase()] || '') }; if (mode === 'mcq') return { type:mode, prompt:parts[0], options:(parts[1] || '').split(';').map(v => v.trim()).filter(Boolean), answer:parts.slice(2).join('|||') }; if (mode === 'formula') return { type:mode, prompt:parts[0], formula:parts[1] || '', answer:parts.slice(2).join('|||') }; return { type:mode, prompt:parts[0], answer:parts[1] || '', formula:parts.slice(2).join('|||') }; }); try { const result = await api(`/api/notebooks/${bookId}/bulk`, { method:'POST', body:JSON.stringify({ mode, entries }) }); closeModal(); toast(`已导入 ${result.added} 条${result.duplicate.length ? `，跳过 ${result.duplicate.length} 条重复` : ''}。`); manageBook(bookId); } catch (err) { toast(err.message); } }; }
+function chooseRound(bookId) { modal('开始一轮复习', `<form id="round-form"><label>本轮数量<input name="count" type="number" min="1" max="200" value="20" required /></label><p class="hint">系统将从该复习本随机抽取内容。选择题可直接作答；其他内容点击显示答案。</p><div class="modal-actions"><button class="primary">开始</button><button type="button" data-close>取消</button></div></form>`); modalRoot.querySelector('[data-close]').onclick = closeModal; modalRoot.querySelector('#round-form').onsubmit = async event => { event.preventDefault(); try { const round = await api(`/api/notebooks/${bookId}/study`, { method:'POST', body:JSON.stringify(Object.fromEntries(new FormData(event.target))) }); closeModal(); studyView(bookId, round); } catch (err) { toast(err.message); } }; }
+function studyView(bookId, round) { if (!round.items.length) return toast('该复习本还没有内容。'); let position = 0; let revealed = false; const render = () => { const item = round.items[position]; const mcq = item.type === 'mcq'; shell(`<section class="study-top"><button class="back" data-nav="home">← 结束复习</button><span>${esc(round.book.name)} · ${position + 1} / ${round.items.length}</span></section><section class="study-card"><span class="study-type">${typeName(item.type)}</span><div class="study-prompt">${nl(item.prompt)}</div>${item.formula ? `<pre class="formula study-formula">${esc(item.formula)}</pre>` : ''}${mcq ? `<div class="study-options">${item.options.map((option,index) => `<button data-choice="${index}">${esc(option)}</button>`).join('')}</div>` : ''}</section><section class="answer-card ${revealed ? 'shown' : ''}">${revealed ? `<p>${nl(item.answer || '无额外答案')}</p>` : '<p>点击右侧“查看答案”后显示答案或解析。</p>'}</section><section class="study-controls"><button id="prev" ${position === 0 ? 'disabled' : ''}>← 上一条</button><button id="mark-wrong">重点复习</button><button class="primary" id="next">${revealed || !item.answer ? '下一条 →' : '查看答案 →'}</button></section>`, 'home'); root.querySelector('#prev').onclick = () => { position -= 1; revealed = false; render(); }; root.querySelector('#next').onclick = async () => { if (!revealed && item.answer) { revealed = true; render(); return; } await api(`/api/items/${item.id}/review`, { method:'POST', body:JSON.stringify({ correct:true }) }).catch(() => {}); position = (position + 1) % round.items.length; revealed = false; render(); }; root.querySelector('#mark-wrong').onclick = async () => { await api(`/api/items/${item.id}/review`, { method:'POST', body:JSON.stringify({ correct:false }) }).catch(() => {}); toast('已记录为重点复习内容。'); }; root.querySelectorAll('[data-choice]').forEach(button => button.onclick = () => { revealed = true; render(); }); }; render(); }
+(async () => { if (!token) return authView(); try { currentUser = (await api('/api/auth/me')).user; dashboard(); } catch { token = ''; localStorage.removeItem('kms-fullstack-token'); authView(); } })();

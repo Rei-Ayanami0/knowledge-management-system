@@ -1,0 +1,9 @@
+{
+  "name": "knowledge-management-system-fullstack",
+  "version": "1.0.0",
+  "private": true,
+  "description": "本地全栈知识管理系统（Node.js + SQLite）",
+  "scripts": {
+    "start": "node server.js"
+  }
+}
