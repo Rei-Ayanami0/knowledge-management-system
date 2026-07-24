@@ -1,0 +1,7 @@
+node_modules/
+dist/
+release/
+data/
+*.log
+知识管理系统.exe
+*.zip

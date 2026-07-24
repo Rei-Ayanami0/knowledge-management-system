@@ -1,0 +1,29 @@
+{
+  "name": "knowledge-management-system",
+  "version": "1.0.0",
+  "description": "本地离线知识管理与复习桌面软件",
+  "main": "main.js",
+  "author": "女神綾波丽",
+  "license": "SEE LICENSE IN LICENSE.txt",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "^39.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "com.ayanami.knowledge-management",
+    "productName": "知识管理系统",
+    "files": [
+      "**/*",
+      "!data/**",
+      "!.git/**",
+      "!node_modules/.cache/**"
+    ],
+    "win": {
+      "target": ["portable"]
+    }
+  }
+}
